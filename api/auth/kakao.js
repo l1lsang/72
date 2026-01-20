@@ -42,7 +42,7 @@ export default async function handler(req, res) {
       body: new URLSearchParams({
         grant_type: "authorization_code",
         client_id: process.env.KAKAO_REST_API_KEY!,
-        redirect_uri: "verse72://login", // 🔥 app.json + 콘솔과 완전 동일
+        redirect_uri: "https://verse72.vercel.app/auth/kakao", // 🔥 app.json + 콘솔과 완전 동일
         code,
       }),
     });
@@ -116,4 +116,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
 
