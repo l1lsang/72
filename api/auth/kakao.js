@@ -1,93 +1,118 @@
 import admin from "firebase-admin";
+import fetch from "node-fetch";
 
-// ===============================
-// 🔐 Firebase Admin 초기화
-// ===============================
+/* =========================
+   🔥 Firebase Admin 초기화
+   ========================= */
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
     }),
   });
 }
 
-// ===============================
-// 🌐 Kakao User API
-// ===============================
-const KAKAO_USER_API = "https://kapi.kakao.com/v2/user/me";
+const db = admin.firestore();
 
-// ===============================
-// 🚀 Vercel API Handler
-// ===============================
+/* =========================
+   🟡 Kakao Auth Handler
+   ========================= */
 export default async function handler(req, res) {
-  // POST만 허용
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
-  const { accessToken } = req.body;
+  const { code } = req.body;
 
-  if (!accessToken) {
-    return res.status(400).json({ error: "accessToken is required" });
+  if (!code) {
+    return res.status(400).json({ error: "Authorization code missing" });
   }
 
   try {
-    // ===============================
-    // 1️⃣ 카카오 사용자 정보 요청
-    // ===============================
-    const kakaoRes = await fetch(KAKAO_USER_API, {
+    /* =========================
+       1️⃣ 카카오 토큰 요청
+       ========================= */
+    const tokenRes = await fetch("https://kauth.kakao.com/oauth/token", {
+      method: "POST",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: process.env.KAKAO_REST_API_KEY!,
+        redirect_uri: "verse72://", // 🔥 app.json + 콘솔과 완전 동일
+        code,
+      }),
+    });
+
+    const tokenData = await tokenRes.json();
+
+    if (!tokenData.access_token) {
+      throw new Error("Kakao access token not issued");
+    }
+
+    /* =========================
+       2️⃣ 카카오 사용자 정보
+       ========================= */
+    const profileRes = await fetch("https://kapi.kakao.com/v2/user/me", {
+      headers: {
+        Authorization: `Bearer ${tokenData.access_token}`,
       },
     });
 
-    if (!kakaoRes.ok) {
-      const errorText = await kakaoRes.text();
-      console.error("Kakao API Error:", errorText);
-      return res.status(401).json({ error: "Invalid Kakao access token" });
-    }
+    const profile = await profileRes.json();
 
-    const kakaoUser = await kakaoRes.json();
-
-    const kakaoId = kakaoUser.id;
-    const email = kakaoUser.kakao_account?.email ?? null;
-    const nickname = kakaoUser.properties?.nickname ?? "카카오 사용자";
-
+    const kakaoId = profile?.id;
     if (!kakaoId) {
-      return res.status(400).json({ error: "Invalid Kakao user data" });
+      throw new Error("Invalid Kakao profile");
     }
 
-    // ===============================
-    // 2️⃣ Firebase UID 생성
-    // ===============================
+    const account = profile.kakao_account || {};
+    const profileInfo = account.profile || {};
+
+    const displayName = profileInfo.nickname || "카카오 사용자";
+    const photoURL = profileInfo.profile_image_url || null;
+    const email = account.email || null;
+
+    /* =========================
+       3️⃣ Firebase UID 생성
+       ========================= */
     const uid = `kakao:${kakaoId}`;
 
-    // ===============================
-    // 3️⃣ Firebase Custom Token 발급
-    // ===============================
-    const customToken = await admin.auth().createCustomToken(uid, {
-      provider: "kakao",
-      email,
-      nickname,
-    });
+    /* =========================
+       4️⃣ Firebase Custom Token
+       ========================= */
+    const customToken = await admin.auth().createCustomToken(uid);
 
-    // ===============================
-    // 4️⃣ 응답
-    // ===============================
-    return res.status(200).json({
-      customToken,
-      user: {
+    /* =========================
+       5️⃣ 🔥 Firestore 유저 upsert
+       ========================= */
+    const userRef = db.collection("users").doc(uid);
+
+    await userRef.set(
+      {
         uid,
-        email,
-        nickname,
         provider: "kakao",
+        email,
+        displayName,
+        photoURL,
+        lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
       },
+      { merge: true } // ✅ 최초 생성 + 재로그인 업데이트
+    );
+
+    /* =========================
+       6️⃣ 클라이언트 응답
+       ========================= */
+    return res.status(200).json({ customToken });
+
+  } catch (error) {
+    console.error("🔥 KAKAO AUTH ERROR:", error);
+    return res.status(500).json({
+      error: "카카오 로그인 처리 중 오류가 발생했습니다.",
     });
-  } catch (err) {
-    console.error("Kakao Auth Error:", err);
-    return res.status(500).json({ error: "Internal Server Error" });
   }
 }
