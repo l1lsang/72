@@ -22,31 +22,26 @@ export async function GET(req: Request) {
     const tokenRes = await fetch("https://kauth.kakao.com/oauth/token", {
       method: "POST",
       headers: {
-        // 🔥 charset 꼭 포함 (카카오 공식 예제)
+        // 카카오 공식 권장
         "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
       },
       body: new URLSearchParams({
         grant_type: "authorization_code",
 
-        // 🔥 REST API 키 (JS 키 ❌)
+        // ✅ REST API 키만 사용 (JS 키 ❌, Admin 키 ❌)
         client_id: process.env.KAKAO_REST_API_KEY!,
 
-        // 🔥 authorize 단계와 완전히 동일해야 함
+        // ✅ 카카오 콘솔에 등록된 Redirect URI와 완전 동일
         redirect_uri: "https://72-3.vercel.app/auth/kakao",
 
-        // 🔥 방금 받은 code (1회용)
+        // ✅ 방금 받은 인가 코드 (1회용)
         code,
-
-        // ❗ Client Secret을 "사용함"으로 켠 경우만
-        ...(process.env.KAKAO_CLIENT_SECRET
-          ? { client_secret: process.env.KAKAO_CLIENT_SECRET }
-          : {}),
       }),
     });
 
     const tokenData = await tokenRes.json();
 
-    // 🔥 이 로그가 제일 중요
+    // 🔥 디버깅용 (문제 생기면 이 로그 보면 됨)
     console.log("🔥 KAKAO TOKEN RESPONSE:", tokenData);
 
     if (!tokenData.access_token) {
@@ -54,7 +49,7 @@ export async function GET(req: Request) {
         {
           ok: false,
           error: "Failed to get kakao access token",
-          detail: tokenData, // 🔥 실제 카카오 에러 그대로 반환
+          detail: tokenData,
         },
         { status: 401 }
       );
@@ -82,7 +77,7 @@ export async function GET(req: Request) {
     const profileInfo = kakaoAccount.profile ?? {};
 
     /* =========================
-       3️⃣ 테스트 응답 (정상)
+       3️⃣ 정상 응답 (테스트 단계)
        ========================= */
     return NextResponse.json({
       ok: true,
