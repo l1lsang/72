@@ -1,4 +1,18 @@
 import { NextResponse } from "next/server";
+import admin from "firebase-admin";
+
+/* =========================
+   🔥 Firebase Admin 초기화
+   ========================= */
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY!.replace(/\\n/g, "\n"),
+    }),
+  });
+}
 
 /**
  * Kakao OAuth Callback
@@ -22,26 +36,17 @@ export async function GET(req: Request) {
     const tokenRes = await fetch("https://kauth.kakao.com/oauth/token", {
       method: "POST",
       headers: {
-        // 카카오 공식 권장
         "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
       },
       body: new URLSearchParams({
         grant_type: "authorization_code",
-
-        // ✅ REST API 키만 사용 (JS 키 ❌, Admin 키 ❌)
         client_id: process.env.KAKAO_REST_API_KEY!,
-
-        // ✅ 카카오 콘솔에 등록된 Redirect URI와 완전 동일
         redirect_uri: "https://72-3.vercel.app/auth/kakao",
-
-        // ✅ 방금 받은 인가 코드 (1회용)
         code,
       }),
     });
 
     const tokenData = await tokenRes.json();
-
-    // 🔥 디버깅용 (문제 생기면 이 로그 보면 됨)
     console.log("🔥 KAKAO TOKEN RESPONSE:", tokenData);
 
     if (!tokenData.access_token) {
@@ -77,15 +82,27 @@ export async function GET(req: Request) {
     const profileInfo = kakaoAccount.profile ?? {};
 
     /* =========================
-       3️⃣ 정상 응답 (테스트 단계)
+       3️⃣ Firebase Custom Token 생성
        ========================= */
-    return NextResponse.json({
-      ok: true,
-      kakaoId: profile.id,
-      email: kakaoAccount.email ?? null,
-      nickname: profileInfo.nickname ?? null,
-      profileImage: profileInfo.profile_image_url ?? null,
-    });
+    const uid = `kakao:${profile.id}`;
+
+    const customToken = await admin
+      .auth()
+      .createCustomToken(uid, {
+        provider: "kakao",
+        email: kakaoAccount.email ?? null,
+        nickname: profileInfo.nickname ?? null,
+      });
+
+    /* =========================
+       4️⃣ 앱으로 리다이렉트 (로그인 완료)
+       ========================= */
+    return NextResponse.redirect(
+      `verse72://login?token=${customToken}`
+    );
+
+    // 🔹 디버그용 (웹에서 확인하고 싶으면)
+    // return NextResponse.json({ ok: true, customToken });
 
   } catch (err) {
     console.error("🔥 KAKAO AUTH SERVER ERROR:", err);
