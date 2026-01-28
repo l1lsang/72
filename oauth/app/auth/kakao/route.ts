@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import admin from "firebase-admin";
 
 /* =========================
+   🔥 Next.js Node 런타임 명시
+   ========================= */
+export const runtime = "nodejs";
+
+/* =========================
    🔥 Firebase Admin 초기화
    ========================= */
 if (!admin.apps.length) {
@@ -41,21 +46,17 @@ export async function GET(req: Request) {
       body: new URLSearchParams({
         grant_type: "authorization_code",
         client_id: process.env.KAKAO_REST_API_KEY!,
-        redirect_uri: "https://72-3.vercel.app/auth/kakao",
+        redirect_uri: process.env.KAKAO_REDIRECT_URI!, // 🔥 환경변수
         code,
       }),
     });
 
     const tokenData = await tokenRes.json();
-    console.log("🔥 KAKAO TOKEN RESPONSE:", tokenData);
+    console.log("🟡 KAKAO TOKEN:", tokenData);
 
     if (!tokenData.access_token) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Failed to get kakao access token",
-          detail: tokenData,
-        },
+        { ok: false, error: "Failed to get kakao access token", detail: tokenData },
         { status: 401 }
       );
     }
@@ -86,23 +87,22 @@ export async function GET(req: Request) {
        ========================= */
     const uid = `kakao:${profile.id}`;
 
-    const customToken = await admin
-      .auth()
-      .createCustomToken(uid, {
-        provider: "kakao",
-        email: kakaoAccount.email ?? null,
-        nickname: profileInfo.nickname ?? null,
-      });
+    const customToken = await admin.auth().createCustomToken(uid, {
+      provider: "kakao",
+      email: kakaoAccount.email ?? null,
+      nickname: profileInfo.nickname ?? null,
+    });
 
     /* =========================
-       4️⃣ 앱으로 리다이렉트 (로그인 완료)
+       4️⃣ 앱으로 딥링크 리다이렉트
        ========================= */
-    return NextResponse.redirect(
-      `verse72://login?token=${customToken}`
+    const redirectUrl = new URL("verse72://login");
+    redirectUrl.searchParams.set(
+      "token",
+      encodeURIComponent(customToken) // 🔥 필수
     );
 
-    // 🔹 디버그용 (웹에서 확인하고 싶으면)
-    // return NextResponse.json({ ok: true, customToken });
+    return NextResponse.redirect(redirectUrl);
 
   } catch (err) {
     console.error("🔥 KAKAO AUTH SERVER ERROR:", err);
