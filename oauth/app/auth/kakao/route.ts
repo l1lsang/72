@@ -46,7 +46,7 @@ export async function GET(req: Request) {
       body: new URLSearchParams({
         grant_type: "authorization_code",
         client_id: process.env.KAKAO_REST_API_KEY!,
-        redirect_uri: process.env.KAKAO_REDIRECT_URI!, // 🔥 환경변수
+        redirect_uri: process.env.KAKAO_REDIRECT_URI!,
         code,
       }),
     });
@@ -56,7 +56,11 @@ export async function GET(req: Request) {
 
     if (!tokenData.access_token) {
       return NextResponse.json(
-        { ok: false, error: "Failed to get kakao access token", detail: tokenData },
+        {
+          ok: false,
+          error: "Failed to get kakao access token",
+          detail: tokenData,
+        },
         { status: 401 }
       );
     }
@@ -82,6 +86,12 @@ export async function GET(req: Request) {
     const kakaoAccount = profile.kakao_account ?? {};
     const profileInfo = kakaoAccount.profile ?? {};
 
+    const nickname = profileInfo.nickname ?? "";
+    const photoURL =
+      profileInfo.profile_image_url ??
+      profileInfo.thumbnail_image_url ??
+      "";
+
     /* =========================
        3️⃣ Firebase Custom Token 생성
        ========================= */
@@ -90,16 +100,27 @@ export async function GET(req: Request) {
     const customToken = await admin.auth().createCustomToken(uid, {
       provider: "kakao",
       email: kakaoAccount.email ?? null,
-      nickname: profileInfo.nickname ?? null,
     });
 
     /* =========================
        4️⃣ 앱으로 딥링크 리다이렉트
+       (token + nickname + photo)
        ========================= */
     const redirectUrl = new URL("verse72://login");
+
     redirectUrl.searchParams.set(
       "token",
-      encodeURIComponent(customToken) // 🔥 필수
+      encodeURIComponent(customToken)
+    );
+
+    redirectUrl.searchParams.set(
+      "nickname",
+      encodeURIComponent(nickname)
+    );
+
+    redirectUrl.searchParams.set(
+      "photo",
+      encodeURIComponent(photoURL)
     );
 
     return NextResponse.redirect(redirectUrl);
